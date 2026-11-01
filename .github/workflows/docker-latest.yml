@@ -10,6 +10,9 @@ permissions:
   contents: read
   packages: write
 
+env:
+  IMAGE_NAME: 5etools
+
 concurrency:
   group: docker-latest
   cancel-in-progress: true
@@ -19,6 +22,20 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Free Disk Space
+        uses: endersonmenezes/free-disk-space@v3
+        with:
+          remove_android: true
+          remove_dotnet: true
+          remove_haskell: true
+          remove_tool_cache: true
+          remove_swap: true
+          remove_packages: "azure-cli google-cloud-cli microsoft-edge-stable google-chrome-stable firefox postgresql* temurin-* *llvm* mysql* dotnet-sdk-*"
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift /usr/share/miniconda /usr/share/az* /usr/local/share/chromium /usr/local/share/powershell /usr/local/julia /usr/local/aws-cli /usr/local/aws-sam-cli /usr/share/gradle"
+          rm_cmd: "rmz"
+          rmz_version: "3.1.1"
+
       - name: Check out source
         uses: actions/checkout@v4
 
@@ -29,10 +46,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/5etools-src:latest
+      - name: Set image IDs
+        run: |
+          echo "IMAGE_ID_SRC=$(echo ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME-src | tr '[A-Z]' '[a-z]')" >> "$GITHUB_ENV"
+          echo "IMAGE_ID_IMG=$(echo ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME-img | tr '[A-Z]' '[a-z]')" >> "$GITHUB_ENV"
+
+      - name: Build image incrementally
+        run: |
+          set -Eeuo pipefail
+
+          docker pull "$IMAGE_ID_SRC:latest"
+          docker pull "$IMAGE_ID_IMG:latest"
+
+          SAVE_CMD=$(docker inspect --format='{{json .Config.Cmd}}' "$IMAGE_ID_SRC:latest")
+
+          # Convert .dockerignore to the rsync filter used by the incremental build.
+          bash ./.github/create-rsync-filter.sh
+
+          docker run --rm \
+            -v "$(pwd)":/tmp/5et-new \
+            "$IMAGE_ID_IMG:latest" \
+            rsync -rlcv --filter='dir-merge /tmp/5et-new/.rsync-filter' \
+            /var/www/localhost/htdocs/img /tmp/5et-new/
+
+          docker rmi $(docker images -q "$IMAGE_ID_IMG"':*')
+
+          CONTAINER_ID=$(docker run -d \
+            -v "$(pwd)":/tmp/5et-new \
+            "$IMAGE_ID_SRC:latest" \
+            rsync -rlcvF --delete-excluded \
+            /tmp/5et-new/ /var/www/localhost/htdocs/)
+
+          docker logs -f "$CONTAINER_ID"
+          docker commit -c "CMD $SAVE_CMD" "$CONTAINER_ID" "$IMAGE_NAME-src"
+
+      - name: Push image
+        run: |
+          docker tag "$IMAGE_NAME-src" "$IMAGE_ID_SRC:latest"
+          docker push "$IMAGE_ID_SRC:latest"
