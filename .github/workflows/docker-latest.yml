@@ -83,6 +83,11 @@ jobs:
           docker tag "$IMAGE_NAME-src" "$IMAGE_ID_SRC:latest-amd64"
           docker push "$IMAGE_ID_SRC:latest-amd64"
 
+          # The asset image is copied into the workspace for the incremental
+          # build, but the ARM64 Dockerfile copies it from its build stage.
+          # Do not include a second copy in the ARM64 build context.
+          rm -rf img
+
       - name: Build and publish ARM64 image
         run: |
           docker buildx build \
