@@ -12,6 +12,7 @@ permissions:
 
 env:
   IMAGE_NAME: 5etools
+  IMAGE_ID_SRC: ghcr.io/${{ github.repository_owner }}/5etools-src
   IMAGE_ID_IMG: ghcr.io/5etools-mirror-3/5etools-img
 
 concurrency:
@@ -47,11 +48,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set image IDs
-        run: |
-          echo "IMAGE_ID_SRC=$(echo ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME-src | tr '[A-Z]' '[a-z]')" >> "$GITHUB_ENV"
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - name: Build image incrementally
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build AMD64 image incrementally
         run: |
           set -Eeuo pipefail
 
@@ -59,8 +62,6 @@ jobs:
           docker pull "$IMAGE_ID_IMG:latest"
 
           SAVE_CMD=$(docker inspect --format='{{json .Config.Cmd}}' "$IMAGE_ID_SRC:latest")
-
-          # Convert .dockerignore to the rsync filter used by the incremental build.
           bash ./.github/create-rsync-filter.sh
 
           docker run --rm \
@@ -79,8 +80,21 @@ jobs:
 
           docker logs -f "$CONTAINER_ID"
           docker commit -c "CMD $SAVE_CMD" "$CONTAINER_ID" "$IMAGE_NAME-src"
+          docker tag "$IMAGE_NAME-src" "$IMAGE_ID_SRC:latest-amd64"
+          docker push "$IMAGE_ID_SRC:latest-amd64"
 
-      - name: Push image
+      - name: Build and publish ARM64 image
         run: |
-          docker tag "$IMAGE_NAME-src" "$IMAGE_ID_SRC:latest"
-          docker push "$IMAGE_ID_SRC:latest"
+          docker buildx build \
+            --platform linux/arm64 \
+            --tag "$IMAGE_ID_SRC:latest-arm64" \
+            --push \
+            --provenance=false \
+            .
+
+      - name: Publish multi-platform manifest
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGE_ID_SRC:latest" \
+            "$IMAGE_ID_SRC:latest-amd64" \
+            "$IMAGE_ID_SRC:latest-arm64"
