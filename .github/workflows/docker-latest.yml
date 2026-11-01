@@ -12,6 +12,7 @@ permissions:
 
 env:
   IMAGE_NAME: 5etools
+  IMAGE_ID_IMG: ghcr.io/5etools-mirror-3/5etools-img
 
 concurrency:
   group: docker-latest
@@ -49,7 +50,6 @@ jobs:
       - name: Set image IDs
         run: |
           echo "IMAGE_ID_SRC=$(echo ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME-src | tr '[A-Z]' '[a-z]')" >> "$GITHUB_ENV"
-          echo "IMAGE_ID_IMG=$(echo ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME-img | tr '[A-Z]' '[a-z]')" >> "$GITHUB_ENV"
 
       - name: Build image incrementally
         run: |
