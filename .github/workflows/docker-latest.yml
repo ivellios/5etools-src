@@ -86,7 +86,7 @@ jobs:
           # The asset image is copied into the workspace for the incremental
           # build, but the ARM64 Dockerfile copies it from its build stage.
           # Do not include a second copy in the ARM64 build context.
-          rm -rf img
+          sudo rm -rf -- img
 
       - name: Build and publish ARM64 image
         run: |
